@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Meu App de TV</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://vjs.zencdn.net/8.6.1/video-js.css" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -15,6 +14,19 @@
         .modal { transition: opacity 0.3s ease; }
         .episode-list-item:hover { background-color: #334155; }
         .season-header { cursor: pointer; }
+        
+        /* Estilo da notificação "Toast" */
+        #toast-notification {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            transition: transform 0.5s ease-in-out;
+            z-index: 100;
+        }
+        #toast-notification.show {
+            transform: translateX(-50%) translateY(0);
+        }
     </style>
 </head>
 <body class="bg-slate-900 text-white">
@@ -40,13 +52,6 @@
         <footer class="bg-slate-800 text-center p-4 text-xs text-gray-400">Aplicação Online</footer>
     </div>
 
-    <!-- Modal do Player -->
-    <div id="player-modal" class="modal fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center p-4 z-50 hidden opacity-0" onclick="closePlayer()">
-        <div class="bg-black rounded-lg shadow-2xl w-full max-w-4xl" onclick="event.stopPropagation()">
-            <video id="my-player" class="video-js vjs-big-play-centered w-full" controls preload="auto"></video>
-        </div>
-    </div>
-
     <!-- Modal de Detalhes da Série -->
     <div id="series-modal" class="modal fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-40 hidden opacity-0" onclick="closeSeriesModal()">
         <div class="bg-slate-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
@@ -56,16 +61,18 @@
         </div>
     </div>
 
-    <script src="https://vjs.zencdn.net/8.6.1/video.min.js"></script>
+    <!-- Notificação "Toast" -->
+    <div id="toast-notification" class="bg-green-500 text-white font-bold py-2 px-5 rounded-full shadow-lg">
+        <p>Link copiado para a área de transferência!</p>
+    </div>
+
     <script>
     document.addEventListener('DOMContentLoaded', () => {
-        // IMPORTANTE: Substitua a URL abaixo pela URL do seu backend no Render.com
         const BACKEND_URL = 'https://meu-iptv-backend.onrender.com';
 
         const state = {
             currentCategory: 'movies',
             allData: { live: [], movies: [], series: [] },
-            player: null,
         };
 
         const elements = {
@@ -73,10 +80,9 @@
             contentGrid: document.getElementById('content-grid'),
             statusMessage: document.getElementById('status-message'),
             searchInput: document.getElementById('search-input'),
-            playerModal: document.getElementById('player-modal'),
-            videoPlayer: document.getElementById('my-player'),
             seriesModal: document.getElementById('series-modal'),
             seriesInfoContent: document.getElementById('series-info-content'),
+            toast: document.getElementById('toast-notification'),
         };
         
         async function fetchData(category) {
@@ -118,7 +124,7 @@
                     if (state.currentCategory === 'series') {
                         openSeriesModal(item);
                     } else {
-                        playItem(item, state.currentCategory);
+                        copyStreamUrl(item, state.currentCategory);
                     }
                 });
                 elements.contentGrid.appendChild(card);
@@ -127,11 +133,7 @@
 
         function setStatusMessage(message, isLoading) {
             elements.contentGrid.classList.add('hidden');
-            elements.statusMessage.innerHTML = `
-                <div class="flex flex-col items-center justify-center">
-                    ${isLoading ? '<div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>' : ''}
-                    <p class="text-lg text-gray-400">${message}</p>
-                </div>`;
+            elements.statusMessage.innerHTML = `<div class="flex flex-col items-center justify-center">${isLoading ? '<div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>' : ''}<p class="text-lg text-gray-400">${message}</p></div>`;
         }
         
         function clearStatusMessage() {
@@ -139,7 +141,7 @@
             elements.contentGrid.classList.remove('hidden');
         }
 
-        function playItem(item, type) {
+        function copyStreamUrl(item, type) {
             const serverUrl = 'http://imperiotv.cloud';
             const user = 'Evertonviamar';
             const pass = '185675284';
@@ -150,23 +152,19 @@
 
             const streamUrl = `${serverUrl}/${streamType}/${user}/${pass}/${streamId}.${extension}`;
             
-            let sourceType = 'video/mp4';
-            if (type === 'live') {
-                sourceType = 'application/x-mpegURL';
-            }
-            
-            state.player.src({ src: streamUrl, type: sourceType });
-            elements.playerModal.classList.remove('hidden');
-            setTimeout(() => {
-                elements.playerModal.classList.remove('opacity-0');
-                state.player.play();
-            }, 10);
+            navigator.clipboard.writeText(streamUrl).then(() => {
+                showToast();
+            }).catch(err => {
+                console.error('Falha ao copiar URL: ', err);
+                alert('Não foi possível copiar o link. Verifique as permissões do seu navegador.');
+            });
         }
 
-        window.closePlayer = function() {
-            state.player.pause();
-            elements.playerModal.classList.add('opacity-0');
-            setTimeout(() => elements.playerModal.classList.add('hidden'), 300);
+        function showToast() {
+            elements.toast.classList.add('show');
+            setTimeout(() => {
+                elements.toast.classList.remove('show');
+            }, 3000); // O "toast" desaparece após 3 segundos
         }
 
         async function openSeriesModal(seriesItem) {
@@ -183,38 +181,16 @@
                 }
 
                 const seasons = data.episodes;
-
-                let seriesHtml = `
-                    <div class="flex flex-col md:flex-row gap-6 mb-6">
-                        <img src="${data.info.cover}" alt="${data.info.name}" class="w-48 rounded-lg shadow-lg mx-auto md:mx-0">
-                        <div class='flex-1'>
-                            <h2 class="text-3xl font-bold mb-2">${data.info.name}</h2>
-                            <p class="text-slate-400 text-sm">${data.info.plot || 'Sem sinopse disponível.'}</p>
-                        </div>
-                    </div>
-                    <div class="space-y-2">
-                `;
-                
+                let seriesHtml = `<div class="flex flex-col md:flex-row gap-6 mb-6"><img src="${data.info.cover}" alt="${data.info.name}" class="w-48 rounded-lg shadow-lg mx-auto md:mx-0"><div class='flex-1'><h2 class="text-3xl font-bold mb-2">${data.info.name}</h2><p class="text-slate-400 text-sm">${data.info.plot || 'Sem sinopse disponível.'}</p></div></div><div class="space-y-2">`;
                 const sortedSeasonNumbers = Object.keys(seasons).sort((a, b) => a - b);
 
                 for (const seasonNum of sortedSeasonNumbers) {
                     const episodes = seasons[seasonNum];
-                    seriesHtml += `
-                        <div>
-                            <h3 class="season-header bg-slate-700 p-3 rounded-md font-semibold" onclick="toggleSeason(${seasonNum})">
-                                Temporada ${seasonNum}
-                            </h3>
-                            <div id="season-${seasonNum}" class="hidden pl-4 pt-2 space-y-1">`;
-                    
+                    seriesHtml += `<div><h3 class="season-header bg-slate-700 p-3 rounded-md font-semibold" onclick="toggleSeason(${seasonNum})">Temporada ${seasonNum}</h3><div id="season-${seasonNum}" class="hidden pl-4 pt-2 space-y-1">`;
                     episodes.sort((a, b) => a.episode_num - b.episode_num);
-                    
                     episodes.forEach(episode => {
-                        seriesHtml += `<div class="episode-list-item p-2 rounded-md cursor-pointer flex justify-between items-center" data-episode-id="${episode.id}" data-extension="${episode.container_extension}">
-                            <span>${episode.episode_num}. ${episode.title}</span>
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        </div>`;
+                        seriesHtml += `<div class="episode-list-item p-2 rounded-md cursor-pointer flex justify-between items-center" data-episode-id="${episode.id}" data-extension="${episode.container_extension}"><span>${episode.episode_num}. ${episode.title}</span><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 text-slate-400"><path d="M8 17.929H6c-1.105 0-2-.895-2-2V8c0-1.105.895-2 2-2h2"></path><path d="M15 5h2c1.105 0 2 .895 2 2v8c0 1.105-.895 2-2 2h-2"></path><rect x="10" y="4" width="4" height="16" rx="1"></rect></svg></div>`;
                     });
-
                     seriesHtml += `</div></div>`;
                 }
 
@@ -223,12 +199,8 @@
                 
                 document.querySelectorAll('.episode-list-item').forEach(el => {
                     el.addEventListener('click', () => {
-                         const episodeData = {
-                            id: el.dataset.episodeId,
-                            container_extension: el.dataset.extension,
-                        };
-                        closeSeriesModal();
-                        setTimeout(() => playItem(episodeData, 'series'), 300);
+                         const episodeData = { id: el.dataset.episodeId, container_extension: el.dataset.extension };
+                         copyStreamUrl(episodeData, 'series');
                     });
                 });
 
@@ -254,8 +226,6 @@
         }
         
         async function init() {
-            state.player = videojs(elements.videoPlayer, { autoplay: false, controls: true, fluid: true, aspect_ratio: "16:9" });
-
             elements.tabButtons.forEach(button => {
                 button.addEventListener('click', () => {
                     state.currentCategory = button.dataset.category;
@@ -267,7 +237,6 @@
             });
 
             elements.searchInput.addEventListener('input', (e) => handleSearch(e.target.value));
-
             await fetchData(state.currentCategory);
         }
 
