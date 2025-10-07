@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Meu App de TV</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://vjs.zencdn.net/8.6.1/video-js.css" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -14,18 +15,6 @@
         .modal { transition: opacity 0.3s ease; }
         .episode-list-item:hover { background-color: #334155; }
         .season-header { cursor: pointer; }
-        
-        #toast-notification {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%) translateY(100px);
-            transition: transform 0.5s ease-in-out;
-            z-index: 100;
-        }
-        #toast-notification.show {
-            transform: translateX(-50%) translateY(0);
-        }
     </style>
 </head>
 <body class="bg-slate-900 text-white">
@@ -51,25 +40,10 @@
         <footer class="bg-slate-800 text-center p-4 text-xs text-gray-400">Aplicação Online</footer>
     </div>
 
-    <!-- Modal de Ações (VLC/Copiar) -->
-    <div id="action-modal" class="modal fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center p-4 z-50 hidden opacity-0" onclick="closeActionModal()">
-        <div class="bg-slate-800 rounded-lg shadow-2xl w-full max-w-sm text-center p-6 space-y-4" onclick="event.stopPropagation()">
-            <h3 id="action-modal-title" class="text-xl font-bold">Como deseja abrir?</h3>
-            <div class="space-y-4">
-                <a id="vlc-app-button" href="#" class="block bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
-                    ▶️ Abrir na Aplicação VLC
-                </a>
-                
-                <div class="border-t border-slate-600 pt-4">
-                    <p class="text-sm text-slate-400 mb-2">Para usar uma extensão de navegador:</p>
-                    <a id="stream-link" href="#" target="_blank" class="block text-blue-400 break-all text-left p-2 bg-slate-900 rounded-md hover:underline text-xs"></a>
-                    <p class="text-xs text-slate-500 mt-1 text-left">Clique com o botão direito no link acima e escolha a opção da sua extensão.</p>
-                </div>
-
-                <button id="copy-button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
-                    📋 Copiar Link
-                </button>
-            </div>
+    <!-- Modal do Player -->
+    <div id="player-modal" class="modal fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center p-4 z-50 hidden opacity-0" onclick="closePlayer()">
+        <div class="bg-black rounded-lg shadow-2xl w-full max-w-4xl" onclick="event.stopPropagation()">
+            <video id="my-player" class="video-js vjs-big-play-centered w-full" controls preload="auto"></video>
         </div>
     </div>
 
@@ -82,11 +56,8 @@
         </div>
     </div>
 
-    <!-- Notificação "Toast" -->
-    <div id="toast-notification" class="bg-green-500 text-white font-bold py-2 px-5 rounded-full shadow-lg">
-        <p>Link copiado para a área de transferência!</p>
-    </div>
-
+    <script src="https://vjs.zencdn.net/8.6.1/video.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         const BACKEND_URL = 'https://meu-iptv-backend.onrender.com';
@@ -94,6 +65,8 @@
         const state = {
             currentCategory: 'movies',
             allData: { live: [], movies: [], series: [] },
+            player: null,
+            hls: null,
         };
 
         const elements = {
@@ -101,14 +74,10 @@
             contentGrid: document.getElementById('content-grid'),
             statusMessage: document.getElementById('status-message'),
             searchInput: document.getElementById('search-input'),
+            playerModal: document.getElementById('player-modal'),
+            videoPlayer: document.getElementById('my-player'),
             seriesModal: document.getElementById('series-modal'),
             seriesInfoContent: document.getElementById('series-info-content'),
-            toast: document.getElementById('toast-notification'),
-            actionModal: document.getElementById('action-modal'),
-            actionModalTitle: document.getElementById('action-modal-title'),
-            vlcAppButton: document.getElementById('vlc-app-button'),
-            streamLink: document.getElementById('stream-link'),
-            copyButton: document.getElementById('copy-button'),
         };
         
         async function fetchData(category) {
@@ -150,7 +119,7 @@
                     if (state.currentCategory === 'series') {
                         openSeriesModal(item);
                     } else {
-                        showActionModal(item, state.currentCategory);
+                        playItem(item, state.currentCategory);
                     }
                 });
                 elements.contentGrid.appendChild(card);
@@ -166,7 +135,7 @@
             elements.statusMessage.innerHTML = '';
             elements.contentGrid.classList.remove('hidden');
         }
-        
+
         function getStreamUrl(item, type) {
             const serverUrl = 'http://imperiotv.cloud';
             const user = 'Evertonviamar';
@@ -177,43 +146,49 @@
             return `${serverUrl}/${streamType}/${user}/${pass}/${streamId}.${extension}`;
         }
 
-        function showActionModal(item, type) {
+        function playItem(item, type) {
             const streamUrl = getStreamUrl(item, type);
-            elements.actionModalTitle.textContent = item.name || item.title;
             
-            elements.vlcAppButton.href = `vlc://${streamUrl}`;
-            
-            elements.streamLink.href = streamUrl;
-            elements.streamLink.textContent = streamUrl;
-            
-            const newCopyButton = elements.copyButton.cloneNode(true);
-            elements.copyButton.parentNode.replaceChild(newCopyButton, elements.copyButton);
-            elements.copyButton = newCopyButton;
+            openPlayerModal();
 
-            elements.copyButton.addEventListener('click', () => {
-                navigator.clipboard.writeText(streamUrl).then(() => {
-                    showToast();
-                    closeActionModal();
-                }).catch(err => {
-                    console.error('Falha ao copiar URL: ', err);
-                    alert('Não foi possível copiar o link.');
+            const isHls = streamUrl.includes('.m3u8') || streamUrl.endsWith('.ts');
+
+            if (state.hls) {
+                state.hls.destroy();
+            }
+
+            if (isHls && Hls.isSupported()) {
+                console.log("A usar HLS.js para a transmissão");
+                state.hls = new Hls();
+                state.hls.loadSource(streamUrl);
+                state.hls.attachMedia(elements.videoPlayer);
+                state.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    state.player.play();
                 });
-            });
-
-            elements.actionModal.classList.remove('hidden');
-            setTimeout(() => elements.actionModal.classList.remove('opacity-0'), 10);
+            } else {
+                console.log("A usar leitor de vídeo nativo");
+                state.player.src({
+                    src: streamUrl,
+                    type: isHls ? 'application/x-mpegURL' : 'video/mp4'
+                });
+                state.player.play();
+            }
+        }
+        
+        function openPlayerModal() {
+            elements.playerModal.classList.remove('hidden');
+            setTimeout(() => elements.playerModal.classList.remove('opacity-0'), 10);
         }
 
-        window.closeActionModal = () => {
-            elements.actionModal.classList.add('opacity-0');
-            setTimeout(() => elements.actionModal.classList.add('hidden'), 300);
-        }
-
-        function showToast() {
-            elements.toast.classList.add('show');
-            setTimeout(() => {
-                elements.toast.classList.remove('show');
-            }, 3000);
+        window.closePlayer = function() {
+            if (state.player) {
+                state.player.pause();
+            }
+            if (state.hls) {
+                state.hls.destroy();
+            }
+            elements.playerModal.classList.add('opacity-0');
+            setTimeout(() => elements.playerModal.classList.add('hidden'), 300);
         }
 
         async function openSeriesModal(seriesItem) {
@@ -253,7 +228,8 @@
                              container_extension: el.dataset.extension,
                              title: el.dataset.title
                          };
-                         showActionModal(episodeData, 'series');
+                         closeSeriesModal();
+                         setTimeout(() => playItem(episodeData, 'series'), 300);
                     });
                 });
 
@@ -279,6 +255,13 @@
         }
         
         async function init() {
+            state.player = videojs(elements.videoPlayer, { 
+                autoplay: false, 
+                controls: true, 
+                fluid: true, 
+                aspectRatio: "16:9" 
+            });
+
             elements.tabButtons.forEach(button => {
                 button.addEventListener('click', () => {
                     state.currentCategory = button.dataset.category;
