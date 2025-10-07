@@ -6,6 +6,8 @@
     <title>Meu App de TV</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- CSS do Shaka Player -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shaka-player@4.3.4/dist/controls.css">
     <style>
         body { font-family: 'Inter', sans-serif; }
         .active-tab { background-color: #2563eb; color: white; }
@@ -14,18 +16,6 @@
         .modal { transition: opacity 0.3s ease; }
         .episode-list-item:hover { background-color: #334155; }
         .season-header { cursor: pointer; }
-        
-        #toast-notification {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%) translateY(100px);
-            transition: transform 0.5s ease-in-out;
-            z-index: 100;
-        }
-        #toast-notification.show {
-            transform: translateX(-50%) translateY(0);
-        }
     </style>
 </head>
 <body class="bg-slate-900 text-white">
@@ -51,10 +41,13 @@
         <footer class="bg-slate-800 text-center p-4 text-xs text-gray-400">Aplicação Online</footer>
     </div>
 
-    <!-- Modal de Ações (VLC/Copiar) -->
-    <div id="action-modal" class="modal fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center p-4 z-50 hidden opacity-0" onclick="closeActionModal()">
-        <div id="action-modal-content" class="bg-slate-800 rounded-lg shadow-2xl w-full max-w-sm text-center p-6 space-y-4" onclick="event.stopPropagation()">
-            <!-- O conteúdo deste modal é gerado dinamicamente -->
+    <!-- Modal do Player -->
+    <div id="player-modal" class="modal fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-50 hidden opacity-0" onclick="closePlayer()">
+        <div class="bg-black rounded-lg shadow-2xl w-full max-w-4xl aspect-video" onclick="event.stopPropagation()">
+            <!-- O container do Shaka Player -->
+            <div data-shaka-player-container class="w-full h-full">
+                <video autoplay data-shaka-player id="video-player" class="w-full h-full"></video>
+            </div>
         </div>
     </div>
 
@@ -66,19 +59,19 @@
             </div>
         </div>
     </div>
-
-    <!-- Notificação "Toast" -->
-    <div id="toast-notification" class="bg-green-500 text-white font-bold py-2 px-5 rounded-full shadow-lg">
-        <p>Link copiado!</p>
-    </div>
+    
+    <!-- JS do Shaka Player -->
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.3.4/dist/shaka-player.ui.js"></script>
 
     <script>
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
         const BACKEND_URL = 'https://meu-iptv-backend.onrender.com';
 
         const state = {
             currentCategory: 'movies',
             allData: { live: [], movies: [], series: [] },
+            player: null,
+            ui: null
         };
 
         const elements = {
@@ -88,10 +81,27 @@
             searchInput: document.getElementById('search-input'),
             seriesModal: document.getElementById('series-modal'),
             seriesInfoContent: document.getElementById('series-info-content'),
-            toast: document.getElementById('toast-notification'),
-            actionModal: document.getElementById('action-modal'),
-            actionModalContent: document.getElementById('action-modal-content'),
+            playerModal: document.getElementById('player-modal'),
+            videoPlayer: document.getElementById('video-player'),
         };
+        
+        async function initPlayer() {
+            // Instalar polyfills do Shaka Player
+            shaka.polyfill.installAll();
+            if (shaka.Player.isBrowserSupported()) {
+                state.player = new shaka.Player(elements.videoPlayer);
+                state.ui = new shaka.ui.Overlay(state.player, elements.videoPlayer.parentElement, elements.videoPlayer);
+                state.player.addEventListener('error', onErrorEvent);
+            } else {
+                console.error('Browser not supported by Shaka Player!');
+            }
+        }
+
+        function onErrorEvent(event) {
+            console.error('Player Error', event.detail);
+            alert(`Erro ao carregar o vídeo. Código: ${event.detail.code}. O provedor pode estar a bloquear a reprodução online (CORS).`);
+            closePlayer();
+        }
         
         async function fetchData(category) {
             setStatusMessage('Carregando...', true);
@@ -132,7 +142,7 @@
                     if (state.currentCategory === 'series') {
                         openSeriesModal(item);
                     } else {
-                        showActionModal(item, state.currentCategory);
+                        playItem(item, state.currentCategory);
                     }
                 });
                 elements.contentGrid.appendChild(card);
@@ -158,63 +168,24 @@
             const streamType = type === 'movies' ? 'movie' : type;
             return `${serverUrl}/${streamType}/${user}/${pass}/${streamId}.${extension}`;
         }
-
-        function showActionModal(item, type) {
+        
+        async function playItem(item, type) {
             const streamUrl = getStreamUrl(item, type);
+            elements.playerModal.classList.remove('hidden');
+            setTimeout(() => elements.playerModal.classList.remove('opacity-0'), 10);
             
-            const initialContent = `
-                <h3 class="text-xl font-bold">${item.name || item.title}</h3>
-                <div class="space-y-4">
-                    <button id="copy-button-modal" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
-                        📋 Copiar Link para o VLC
-                    </button>
-                    <div class="border-t border-slate-600 pt-4">
-                        <p class="text-sm text-slate-400 mb-2">Alternativa:</p>
-                        <a href="vlc://${streamUrl}" class="block w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-3 rounded-lg text-sm">
-                            ▶️ Tentar Abrir no VLC (pode não funcionar)
-                        </a>
-                    </div>
-                </div>
-            `;
-            elements.actionModalContent.innerHTML = initialContent;
-
-            document.getElementById('copy-button-modal').addEventListener('click', () => {
-                navigator.clipboard.writeText(streamUrl).then(() => {
-                    showToast();
-                    const copiedContent = `
-                        <h3 class="text-xl font-bold text-green-400">Link Copiado!</h3>
-                        <p class="text-slate-300">Agora, siga estes passos no VLC:</p>
-                        <ol class="text-left text-sm space-y-2 p-4 bg-slate-900 rounded-md">
-                            <li>1. Abra o VLC Player.</li>
-                            <li>2. Vá para <strong>Mídia</strong> > <strong>Abrir Fluxo de Rede...</strong></li>
-                            <li>3. Cole o link (Ctrl+V ou Cmd+V).</li>
-                            <li>4. Clique em <strong>Reproduzir</strong>.</li>
-                        </ol>
-                        <button onclick="closeActionModal()" class="mt-4 w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg">
-                            Fechar
-                        </button>
-                    `;
-                    elements.actionModalContent.innerHTML = copiedContent;
-                }).catch(err => {
-                    console.error('Falha ao copiar URL: ', err);
-                    alert('Não foi possível copiar o link.');
-                });
-            });
-
-            elements.actionModal.classList.remove('hidden');
-            setTimeout(() => elements.actionModal.classList.remove('opacity-0'), 10);
+            try {
+                await state.player.load(streamUrl);
+                console.log('O vídeo foi carregado!');
+            } catch (error) {
+                onErrorEvent({ detail: error });
+            }
         }
-
-        window.closeActionModal = () => {
-            elements.actionModal.classList.add('opacity-0');
-            setTimeout(() => elements.actionModal.classList.add('hidden'), 300);
-        }
-
-        function showToast() {
-            elements.toast.classList.add('show');
-            setTimeout(() => {
-                elements.toast.classList.remove('show');
-            }, 2000);
+        
+        window.closePlayer = () => {
+            state.player.unload();
+            elements.playerModal.classList.add('opacity-0');
+            setTimeout(() => elements.playerModal.classList.add('hidden'), 300);
         }
 
         async function openSeriesModal(seriesItem) {
@@ -254,7 +225,8 @@
                              container_extension: el.dataset.extension,
                              title: el.dataset.title
                          };
-                         showActionModal(episodeData, 'series');
+                         closeSeriesModal();
+                         setTimeout(() => playItem(episodeData, 'series'), 350);
                     });
                 });
 
@@ -280,6 +252,8 @@
         }
         
         async function init() {
+            await initPlayer();
+
             elements.tabButtons.forEach(button => {
                 button.addEventListener('click', () => {
                     state.currentCategory = button.dataset.category;
