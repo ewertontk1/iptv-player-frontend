@@ -53,24 +53,8 @@
 
     <!-- Modal de Ações (VLC/Copiar) -->
     <div id="action-modal" class="modal fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center p-4 z-50 hidden opacity-0" onclick="closeActionModal()">
-        <div class="bg-slate-800 rounded-lg shadow-2xl w-full max-w-sm text-center p-6 space-y-4" onclick="event.stopPropagation()">
-            <h3 id="action-modal-title" class="text-xl font-bold">Como deseja abrir?</h3>
-            <div class="space-y-4">
-                <a id="vlc-app-button" href="#" class="block w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
-                    ▶️ Abrir na Aplicação VLC
-                </a>
-                <p class="text-xs text-slate-500 -mt-2">Se não funcionar, verifique se o VLC está instalado e se o navegador tem permissão.</p>
-
-                <div class="border-t border-slate-600 pt-4">
-                    <p class="text-sm text-slate-400 mb-2">Para usar uma extensão de navegador:</p>
-                    <a id="stream-link" href="#" target="_blank" class="block text-blue-400 break-all text-left p-2 bg-slate-900 rounded-md hover:underline text-xs"></a>
-                    <p class="text-xs text-slate-500 mt-1 text-left">Clique com o botão direito no link acima e escolha a opção da sua extensão.</p>
-                </div>
-
-                <button id="copy-button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
-                    📋 Copiar Link
-                </button>
-            </div>
+        <div id="action-modal-content" class="bg-slate-800 rounded-lg shadow-2xl w-full max-w-sm text-center p-6 space-y-4" onclick="event.stopPropagation()">
+            <!-- O conteúdo deste modal é gerado dinamicamente -->
         </div>
     </div>
 
@@ -85,7 +69,7 @@
 
     <!-- Notificação "Toast" -->
     <div id="toast-notification" class="bg-green-500 text-white font-bold py-2 px-5 rounded-full shadow-lg">
-        <p>Link copiado para a área de transferência!</p>
+        <p>Link copiado!</p>
     </div>
 
     <script>
@@ -106,10 +90,7 @@
             seriesInfoContent: document.getElementById('series-info-content'),
             toast: document.getElementById('toast-notification'),
             actionModal: document.getElementById('action-modal'),
-            actionModalTitle: document.getElementById('action-modal-title'),
-            vlcAppButton: document.getElementById('vlc-app-button'),
-            streamLink: document.getElementById('stream-link'),
-            copyButton: document.getElementById('copy-button'),
+            actionModalContent: document.getElementById('action-modal-content'),
         };
         
         async function fetchData(category) {
@@ -180,22 +161,40 @@
 
         function showActionModal(item, type) {
             const streamUrl = getStreamUrl(item, type);
-            elements.actionModalTitle.textContent = item.name || item.title;
             
-            // CORREÇÃO: Usar o comando 'open?url=' sem codificar a URL.
-            elements.vlcAppButton.href = `vlc://open?url=${streamUrl}`;
-            
-            elements.streamLink.href = streamUrl;
-            elements.streamLink.textContent = streamUrl;
-            
-            const newCopyButton = elements.copyButton.cloneNode(true);
-            elements.copyButton.parentNode.replaceChild(newCopyButton, elements.copyButton);
-            elements.copyButton = newCopyButton;
+            const initialContent = `
+                <h3 class="text-xl font-bold">${item.name || item.title}</h3>
+                <div class="space-y-4">
+                    <button id="copy-button-modal" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
+                        📋 Copiar Link para o VLC
+                    </button>
+                    <div class="border-t border-slate-600 pt-4">
+                        <p class="text-sm text-slate-400 mb-2">Alternativa:</p>
+                        <a href="vlc://${streamUrl}" class="block w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-3 rounded-lg text-sm">
+                            ▶️ Tentar Abrir no VLC (pode não funcionar)
+                        </a>
+                    </div>
+                </div>
+            `;
+            elements.actionModalContent.innerHTML = initialContent;
 
-            elements.copyButton.addEventListener('click', () => {
+            document.getElementById('copy-button-modal').addEventListener('click', () => {
                 navigator.clipboard.writeText(streamUrl).then(() => {
                     showToast();
-                    closeActionModal();
+                    const copiedContent = `
+                        <h3 class="text-xl font-bold text-green-400">Link Copiado!</h3>
+                        <p class="text-slate-300">Agora, siga estes passos no VLC:</p>
+                        <ol class="text-left text-sm space-y-2 p-4 bg-slate-900 rounded-md">
+                            <li>1. Abra o VLC Player.</li>
+                            <li>2. Vá para <strong>Mídia</strong> > <strong>Abrir Fluxo de Rede...</strong></li>
+                            <li>3. Cole o link (Ctrl+V ou Cmd+V).</li>
+                            <li>4. Clique em <strong>Reproduzir</strong>.</li>
+                        </ol>
+                        <button onclick="closeActionModal()" class="mt-4 w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg">
+                            Fechar
+                        </button>
+                    `;
+                    elements.actionModalContent.innerHTML = copiedContent;
                 }).catch(err => {
                     console.error('Falha ao copiar URL: ', err);
                     alert('Não foi possível copiar o link.');
@@ -215,7 +214,7 @@
             elements.toast.classList.add('show');
             setTimeout(() => {
                 elements.toast.classList.remove('show');
-            }, 3000);
+            }, 2000);
         }
 
         async function openSeriesModal(seriesItem) {
