@@ -46,7 +46,7 @@
         <div class="bg-black rounded-lg shadow-2xl w-full max-w-4xl aspect-video" onclick="event.stopPropagation()">
             <!-- O container do Shaka Player -->
             <div data-shaka-player-container class="w-full h-full">
-                <video autoplay data-shaka-player id="video-player" class="w-full h-full" crossorigin="anonymous"></video>
+                <video autoplay data-shaka-player id="video-player" class="w-full h-full"></video>
             </div>
         </div>
     </div>
@@ -160,43 +160,26 @@
         }
         
         function getStreamUrl(item, type) {
-    // Construir a URL via proxy no backend (evita CORS/mixed-content)
-    const user = 'Evertonviamar';
-    const pass = '185675284';
-    const streamId = item.id || item.stream_id;
-    const extension = item.container_extension || (type === 'live' ? 'ts' : 'mp4');
-    const streamType = type === 'movies' ? 'movie' : type;
-    // BACKEND_URL está definido no topo do script (aponta para seu Render)
-    return `${BACKEND_URL}/proxy?streamType=${encodeURIComponent(streamType)}&user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}&id=${encodeURIComponent(streamId)}&ext=${encodeURIComponent(extension)}`;
-}
-        async function playItem(item, type) {
-    const streamUrl = getStreamUrl(item, type);
-    elements.playerModal.classList.remove('hidden');
-    setTimeout(() => elements.playerModal.classList.remove('opacity-0'), 10);
-
-    // preparar player / video
-    elements.videoPlayer.pause();
-    elements.videoPlayer.removeAttribute('data-shaka-player');
-    elements.videoPlayer.crossOrigin = 'anonymous';
-
-    try {
-        const lower = streamUrl.toLowerCase();
-        if (lower.includes('.m3u8') || lower.includes('.mpd')) {
-            // usar Shaka para manifests (HLS/DASH)
-            await state.player.load(streamUrl);
-            console.log('Manifest carregado via Shaka.');
-        } else {
-            // fallback para arquivos diretos (mp4/ts)
-            try { await state.player.unload(); } catch (e) { /* ignora */ }
-            elements.videoPlayer.src = streamUrl;
-            await elements.videoPlayer.load();
-            await elements.videoPlayer.play();
-            console.log('Playback HTML5 iniciado com sucesso.');
+            const serverUrl = 'http://imperiotv.cloud';
+            const user = 'Evertonviamar';
+            const pass = '185675284';
+            const streamId = item.id || item.stream_id;
+            const extension = item.container_extension || (type === 'live' ? 'ts' : 'mp4');
+            const streamType = type === 'movies' ? 'movie' : type;
+            return `${serverUrl}/${streamType}/${user}/${pass}/${streamId}.${extension}`;
         }
-    } catch (error) {
-        onErrorEvent({ detail: error });
-    }
-}
+        
+        async function playItem(item, type) {
+            const streamUrl = getStreamUrl(item, type);
+            elements.playerModal.classList.remove('hidden');
+            setTimeout(() => elements.playerModal.classList.remove('opacity-0'), 10);
+            
+            try {
+                await state.player.load(streamUrl);
+                console.log('O vídeo foi carregado!');
+            } catch (error) {
+                onErrorEvent({ detail: error });
+            }
         }
         
         window.closePlayer = () => {
@@ -290,4 +273,3 @@
     </script>
 </body>
 </html>
-
