@@ -182,9 +182,8 @@
             const streamUrl = getStreamUrl(item, type);
             elements.actionModalTitle.textContent = item.name || item.title;
             
-            // CORREÇÃO: Codifica a URL do stream para garantir que o navegador a passe corretamente para o VLC.
-            const encodedStreamUrl = encodeURIComponent(streamUrl);
-            elements.vlcAppButton.href = `vlc://${encodedStreamUrl}`;
+            // CORREÇÃO: Removemos a codificação que estava a quebrar o link para o VLC.
+            elements.vlcAppButton.href = `vlc://${streamUrl}`;
             
             elements.streamLink.href = streamUrl;
             elements.streamLink.textContent = streamUrl;
