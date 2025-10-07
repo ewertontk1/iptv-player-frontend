@@ -56,10 +56,11 @@
         <div class="bg-slate-800 rounded-lg shadow-2xl w-full max-w-sm text-center p-6 space-y-4" onclick="event.stopPropagation()">
             <h3 id="action-modal-title" class="text-xl font-bold">Como deseja abrir?</h3>
             <div class="space-y-4">
-                <a id="vlc-app-button" href="#" class="block bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
+                <button id="vlc-app-button" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
                     ▶️ Abrir na Aplicação VLC
-                </a>
-                
+                </button>
+                <p class="text-xs text-slate-500 -mt-2">Se não funcionar, verifique se o VLC está instalado e se o navegador tem permissão.</p>
+
                 <div class="border-t border-slate-600 pt-4">
                     <p class="text-sm text-slate-400 mb-2">Para usar uma extensão de navegador:</p>
                     <a id="stream-link" href="#" target="_blank" class="block text-blue-400 break-all text-left p-2 bg-slate-900 rounded-md hover:underline text-xs"></a>
@@ -181,12 +182,18 @@
             const streamUrl = getStreamUrl(item, type);
             elements.actionModalTitle.textContent = item.name || item.title;
             
-            elements.vlcAppButton.href = `vlc://${streamUrl}`;
-            
             elements.streamLink.href = streamUrl;
             elements.streamLink.textContent = streamUrl;
             
-            // Recriar o botão de cópia para evitar múltiplos event listeners
+            // Recriar botões para evitar múltiplos event listeners
+            const newVlcButton = elements.vlcAppButton.cloneNode(true);
+            elements.vlcAppButton.parentNode.replaceChild(newVlcButton, elements.vlcAppButton);
+            elements.vlcAppButton = newVlcButton;
+
+            elements.vlcAppButton.addEventListener('click', () => {
+                window.location.href = `vlc://${streamUrl}`;
+            });
+
             const newCopyButton = elements.copyButton.cloneNode(true);
             elements.copyButton.parentNode.replaceChild(newCopyButton, elements.copyButton);
             elements.copyButton = newCopyButton;
