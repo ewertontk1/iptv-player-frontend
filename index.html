@@ -29,12 +29,13 @@
                     <button data-category="movies" class="tab-btn px-4 py-2 text-sm font-medium rounded-md transition active-tab">Filmes</button>
                     <button data-category="series" class="tab-btn px-4 py-2 text-sm font-medium rounded-md transition">Séries</button>
                 </nav>
-                <input type="text" id="search-input" placeholder="Buscar..." class="bg-slate-700 rounded-lg py-2 pl-4 pr-4 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <input type="text" id="search-input" placeholder="Buscar em todos os grupos..." class="bg-slate-700 rounded-lg py-2 pl-4 pr-4 w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
         </header>
 
         <main class="container mx-auto p-4 flex-grow">
             <div id="status-message" class="text-center py-10"></div>
+            <!-- A grid agora irá conter os títulos e os cartões -->
             <div id="content-grid" class="hidden grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6"></div>
         </main>
         
@@ -44,8 +45,8 @@
     <!-- Modal do Player -->
     <div id="player-modal" class="modal fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-50 hidden opacity-0" onclick="closePlayer()">
         <div class="bg-black rounded-lg shadow-2xl w-full max-w-4xl aspect-video" onclick="event.stopPropagation()">
-            <!-- O container do Shaka Player -->
-            <div data-shaka-player-container class="w-full h-full">
+            <!-- Container do Shaka Player com ecrã completo ativado -->
+            <div data-shaka-player-container data-shaka-player-fullscreen-enabled="true" class="w-full h-full">
                 <video autoplay data-shaka-player id="video-player" class="w-full h-full"></video>
             </div>
         </div>
@@ -69,7 +70,7 @@
 
         const state = {
             currentCategory: 'movies',
-            allData: { live: [], movies: [], series: [] },
+            allData: { live: null, movies: null, series: null },
             player: null,
             ui: null
         };
@@ -86,7 +87,6 @@
         };
         
         async function initPlayer() {
-            // Instalar polyfills do Shaka Player
             shaka.polyfill.installAll();
             if (shaka.Player.isBrowserSupported()) {
                 state.player = new shaka.Player(elements.videoPlayer);
@@ -103,50 +103,97 @@
             closePlayer();
         }
         
-        async function fetchData(category) {
+        async function fetchData(categoryType) {
             setStatusMessage('Carregando...', true);
             try {
-                const response = await fetch(`${BACKEND_URL}/api/list/${category}`);
-                if (!response.ok) throw new Error(`Erro na rede: ${response.statusText}`);
-                const data = await response.json();
+                // Busca categorias e conteúdo em paralelo para mais rapidez
+                const [categoriesRes, contentRes] = await Promise.all([
+                    fetch(`${BACKEND_URL}/api/categories/${categoryType}`),
+                    fetch(`${BACKEND_URL}/api/list/${categoryType}`)
+                ]);
+
+                if (!categoriesRes.ok || !contentRes.ok) throw new Error('Falha ao buscar dados do servidor.');
                 
-                if (!Array.isArray(data)) {
-                    throw new Error("O servidor não retornou uma lista de conteúdo válida.");
-                }
+                const categories = await categoriesRes.json();
+                const content = await contentRes.json();
+
+                if (!Array.isArray(categories) || !Array.isArray(content)) throw new Error("Dados inválidos recebidos do servidor.");
+
+                const categoryMap = categories.reduce((map, cat) => {
+                    map[cat.category_id] = cat.category_name;
+                    return map;
+                }, {});
                 
-                state.allData[category] = data;
-                renderContent(data);
+                state.allData[categoryType] = { content, categoryMap };
+                renderGroupedContent(content, categoryMap);
 
             } catch (error) {
                 console.error("Falha ao buscar dados:", error);
-                setStatusMessage(`Erro ao carregar conteúdo: ${error.message}. Verifique a URL do backend e se o servidor está online.`, false);
+                setStatusMessage(`Erro ao carregar conteúdo: ${error.message}.`, false);
             }
         }
         
-        function renderContent(items) {
+        function renderGroupedContent(content, categoryMap) {
             elements.contentGrid.innerHTML = '';
-            if (!items || items.length === 0) {
+            
+            const groupedContent = content.reduce((groups, item) => {
+                const catId = item.category_id || 'uncategorized';
+                if (!groups[catId]) groups[catId] = [];
+                groups[catId].push(item);
+                return groups;
+            }, {});
+
+            if (Object.keys(groupedContent).length === 0) {
                 setStatusMessage('Nenhum conteúdo encontrado nesta categoria.', false);
                 return;
             }
             
             clearStatusMessage();
-
-            items.forEach(item => {
-                const coverUrl = item.stream_icon || item.cover;
-                const card = document.createElement('div');
-                card.className = 'content-card bg-slate-700 rounded-lg overflow-hidden cursor-pointer flex flex-col';
-                card.innerHTML = `<div class="aspect-[2/3] w-full"><img src="${coverUrl}" alt="${item.name}" class="w-full h-full object-cover" loading="lazy" onerror="this.src='https://placehold.co/400x600/1e2b3b/ffffff?text=Erro!'"/></div><div class="p-2 mt-auto"><h3 class="text-sm font-medium truncate">${item.name}</h3></div>`;
-                
-                card.addEventListener('click', () => {
-                    if (state.currentCategory === 'series') {
-                        openSeriesModal(item);
-                    } else {
-                        playItem(item, state.currentCategory);
-                    }
-                });
-                elements.contentGrid.appendChild(card);
+            
+            const sortedCategoryIds = Object.keys(groupedContent).sort((a, b) => {
+                const nameA = categoryMap[a] || '';
+                const nameB = categoryMap[b] || '';
+                return nameA.localeCompare(nameB);
             });
+
+            for (const catId of sortedCategoryIds) {
+                const categoryName = categoryMap[catId] || 'Outros';
+                const items = groupedContent[catId];
+                
+                const categoryTitle = document.createElement('h2');
+                categoryTitle.className = 'text-2xl font-bold mt-8 mb-4 col-span-full'; // Ocupa a largura toda da grid
+                categoryTitle.textContent = categoryName;
+                elements.contentGrid.appendChild(categoryTitle);
+                
+                items.forEach(item => renderCard(item));
+            }
+        }
+
+        function renderFlatContent(content) {
+            elements.contentGrid.innerHTML = '';
+             if (content.length === 0) {
+                setStatusMessage('Nenhum resultado encontrado para a sua pesquisa.', false);
+                return;
+            }
+            clearStatusMessage();
+            content.forEach(item => renderCard(item));
+        }
+        
+        function renderCard(item) {
+            const coverUrl = item.stream_icon || item.cover;
+            const card = document.createElement('div');
+            card.className = 'content-card bg-slate-700 rounded-lg overflow-hidden cursor-pointer flex flex-col';
+            card.innerHTML = `<div class="aspect-[2/3] w-full"><img src="${coverUrl}" alt="${item.name}" class="w-full h-full object-cover" loading="lazy" onerror="this.src='https://placehold.co/400x600/1e2b3b/ffffff?text=Erro!'"/></div><div class="p-2 mt-auto"><h3 class="text-sm font-medium truncate">${item.name}</h3></div>`;
+            
+            card.addEventListener('click', () => {
+                const currentType = state.currentCategory;
+                if (currentType === 'series') {
+                    openSeriesModal(item);
+                } else {
+                    playItem(item, currentType);
+                }
+            });
+            elements.contentGrid.appendChild(card);
         }
 
         function setStatusMessage(message, isLoading) {
@@ -176,7 +223,6 @@
             
             try {
                 await state.player.load(streamUrl);
-                console.log('O vídeo foi carregado!');
             } catch (error) {
                 onErrorEvent({ detail: error });
             }
@@ -197,9 +243,7 @@
                 const response = await fetch(`${BACKEND_URL}/api/series-info/${seriesItem.series_id}`);
                 const data = await response.json();
 
-                if (!data || !data.episodes || typeof data.episodes !== 'object') {
-                    throw new Error("Formato de dados da série inválido recebido do servidor.");
-                }
+                if (!data || !data.episodes || typeof data.episodes !== 'object') throw new Error("Formato de dados da série inválido.");
 
                 const seasons = data.episodes;
                 let seriesHtml = `<div class="flex flex-col md:flex-row gap-6 mb-6"><img src="${data.info.cover}" alt="${data.info.name}" class="w-48 rounded-lg shadow-lg mx-auto md:mx-0"><div class='flex-1'><h2 class="text-3xl font-bold mb-2">${data.info.name}</h2><p class="text-slate-400 text-sm">${data.info.plot || 'Sem sinopse disponível.'}</p></div></div><div class="space-y-2">`;
@@ -210,11 +254,10 @@
                     seriesHtml += `<div><h3 class="season-header bg-slate-700 p-3 rounded-md font-semibold" onclick="toggleSeason(${seasonNum})">Temporada ${seasonNum}</h3><div id="season-${seasonNum}" class="hidden pl-4 pt-2 space-y-1">`;
                     episodes.sort((a, b) => a.episode_num - b.episode_num);
                     episodes.forEach(episode => {
-                        seriesHtml += `<div class="episode-list-item p-2 rounded-md cursor-pointer" data-episode-id="${episode.id}" data-extension="${episode.container_extension}" data-title="${episode.title.replace(/"/g, '&quot;')}"><span>${episode.episode_num}. ${episode.title}</span></div>`;
+                        seriesHtml += `<div class="episode-list-item p-2 rounded-md cursor-pointer" data-episode-id="${episode.id}" data-extension="${episode.container_extension}"><span>${episode.episode_num}. ${episode.title}</span></div>`;
                     });
                     seriesHtml += `</div></div>`;
                 }
-
                 seriesHtml += `</div>`;
                 elements.seriesInfoContent.innerHTML = seriesHtml;
                 
@@ -222,8 +265,7 @@
                     el.addEventListener('click', () => {
                          const episodeData = { 
                              id: el.dataset.episodeId, 
-                             container_extension: el.dataset.extension,
-                             title: el.dataset.title
+                             container_extension: el.dataset.extension
                          };
                          closeSeriesModal();
                          setTimeout(() => playItem(episodeData, 'series'), 350);
@@ -246,9 +288,16 @@
 
         function handleSearch(term) {
             const lowerTerm = term.toLowerCase();
-            const currentData = state.allData[state.currentCategory] || [];
-            const results = currentData.filter(item => item.name && item.name.toLowerCase().includes(lowerTerm));
-            renderContent(results);
+            const data = state.allData[state.currentCategory];
+            if (!data) return;
+
+            if (!term) {
+                renderGroupedContent(data.content, data.categoryMap);
+                return;
+            }
+
+            const results = data.content.filter(item => item.name && item.name.toLowerCase().includes(lowerTerm));
+            renderFlatContent(results);
         }
         
         async function init() {
@@ -273,3 +322,4 @@
     </script>
 </body>
 </html>
+
